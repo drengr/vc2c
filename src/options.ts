@@ -6,6 +6,7 @@ import * as vueTemplateCompiler from 'vue-template-compiler'
 export interface Vc2cOptions {
   root: string
   debug: boolean
+  denyReactive: boolean
   compatible: boolean
   setupPropsKey: string
   setupContextKey: string
@@ -13,6 +14,7 @@ export interface Vc2cOptions {
   vueTemplateCompiler: typeof vueTemplateCompiler
   eslintConfigFile: string
   plugins: ASTConvertPlugins
+  withDefaultExport: boolean
 }
 
 export type InputVc2cOptions = Partial<Vc2cOptions>
@@ -21,13 +23,15 @@ export function getDefaultVc2cOptions (tsModule: typeof ts = ts): Vc2cOptions {
   return {
     root: process.cwd(),
     debug: false,
+    denyReactive: true,
     compatible: false,
     setupPropsKey: 'props',
     setupContextKey: 'context',
     typescript: tsModule,
     vueTemplateCompiler: vueTemplateCompiler,
     eslintConfigFile: '.eslintrc.js',
-    plugins: getDefaultPlugins(tsModule)
+    plugins: getDefaultPlugins(tsModule),
+    withDefaultExport: true,
   }
 }
 

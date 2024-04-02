@@ -10,7 +10,7 @@ export const convertData: ASTConverter<ts.PropertyDeclaration> = (node, options,
   const dataName = node.name.getText()
 
   const checker = program.getTypeChecker()
-  const isRef = isPrimitiveType(tsModule, checker.getTypeAtLocation(node.initializer))
+  const isRef = options.denyReactive ? true : isPrimitiveType(tsModule, checker.getTypeAtLocation(node.initializer))
 
   const tag = (isRef) ? 'Data-ref' : 'Data-reactive'
   const named = (isRef) ? ['ref'] : ['reactive']

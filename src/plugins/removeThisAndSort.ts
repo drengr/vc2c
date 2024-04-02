@@ -1,8 +1,8 @@
 import { ASTTransform, ASTResult, ReferenceKind, ASTResultKind } from './types'
 import type ts from 'typescript'
-import { addTodoComment } from '../utils'
+import { addTodoComment, getStringAttribute, convertTypeToTypeNode } from '../utils'
 
-export const removeThisAndSort: ASTTransform = (astResults, options) => {
+export const removeThisAndSort: ASTTransform = (astResults, options, program) => {
   const tsModule = options.typescript
   const getReferences = (reference: ReferenceKind) => astResults
     .filter((el) => el.reference === reference)
@@ -28,13 +28,87 @@ export const removeThisAndSort: ASTTransform = (astResults, options) => {
   }
 
   let dependents: string[] = []
+  const emittedData: Record<string, ts.Type | undefined> = {};
+
+  const captureEmit = (node: ts.PropertyAccessExpression) => {
+    const emitNode = node.parent;
+    if (tsModule.isCallExpression(emitNode)) {
+      const [eventNameNode, eventParamsNode] = emitNode.arguments;
+      const eventName = eventNameNode.getText().replace(/'/g, '',);
+      const typeChecker = program.getTypeChecker();
+      const typeObject = eventParamsNode ?
+        typeChecker.getTypeAtLocation(eventParamsNode) :
+        undefined;
+
+      if (!emittedData[eventName]) {
+        emittedData[eventName] = typeObject;
+      }
+    }
+  }
+
+  const generateEventNode = (eventName: string, type: ts.Type | undefined) => {
+    const parameters = [
+      tsModule.createParameter(
+        undefined,
+        undefined,
+        undefined,
+        "e",
+        undefined,
+        tsModule.createLiteralTypeNode(tsModule.createStringLiteral(eventName)),
+      )
+    ];
+
+    if (type) {
+      parameters.push(tsModule.createParameter(
+        undefined,
+        undefined,
+        undefined,
+        "data",
+        undefined,
+        convertTypeToTypeNode(type, tsModule)
+      ));
+    }
+
+    return tsModule.createMethodSignature(
+      undefined,
+      parameters,
+      tsModule.createKeywordTypeNode(tsModule.SyntaxKind.VoidKeyword),
+      '',
+      undefined
+    );
+  }
+
+  const generateEmitNode = () => {
+    const typeMembers = Object.entries(emittedData).map(([key, type]) => generateEventNode(key, type));
+    const typeNode = tsModule.createTypeLiteralNode(typeMembers);
+
+    const emitVariableNode = tsModule.createVariableStatement(
+      [],
+      tsModule.createVariableDeclarationList(
+        [
+          tsModule.createVariableDeclaration(
+            'emit',
+            undefined,
+            tsModule.createCall(
+              tsModule.createIdentifier('defineEmits'),
+              [typeNode],
+              undefined
+            )
+          ),
+        ],
+        tsModule.NodeFlags.Const
+      )
+    );
+
+    return emitVariableNode;
+  }
 
   const transformer: () => ts.TransformerFactory<ts.Node> = () => {
     return (context) => {
       const removeThisVisitor: ts.Visitor = (node) => {
         if (tsModule.isPropertyAccessExpression(node)) {
           if (node.expression.kind === tsModule.SyntaxKind.ThisKeyword) {
-            const propertyName = node.name.getText()
+            const propertyName = node.name.escapedText.toString();
             if (refVariables.includes(propertyName)) {
               dependents.push(propertyName)
               return tsModule.createPropertyAccess(
@@ -61,6 +135,11 @@ export const removeThisAndSort: ASTTransform = (astResults, options) => {
             } else {
               const convertKey = convertContextKey(propertyName)
               if (convertKey) {
+                if (convertKey === 'emit') {
+                  captureEmit(node)
+                  return tsModule.createIdentifier(convertKey);
+                }
+
                 return tsModule.createPropertyAccess(
                   tsModule.createIdentifier(options.setupContextKey),
                   tsModule.createIdentifier(convertKey)
@@ -90,13 +169,30 @@ export const removeThisAndSort: ASTTransform = (astResults, options) => {
     }
   }
 
-  const transformResults = astResults.map((astResult) => {
+  type TransformResult = ASTResult<ts.Node> & {
+    nodes: ts.Node[];
+    nodeDependents: string[];
+  }
+
+  const transformResults = astResults.reduce<TransformResult[]>((acc, astResult) => {
     if (astResult.kind === ASTResultKind.OBJECT) {
-      return {
+      acc.push({
         ...astResult,
         nodeDependents: []
-      }
+      });
+      return acc;
     }
+
+    if (astResult.tag === 'PropSync' && astResult.types) {
+      emittedData[`update:${astResult.attributes[0]}`] = astResult.types[0];
+      return acc;
+    } else if (astResult.tag === 'ModelSync' && astResult.types) {
+      const name = getStringAttribute(astResult.attributes, 0);
+
+      emittedData[name] = astResult.types[0];
+      return acc;
+    }
+
     dependents = []
     const nodes = tsModule.transform(
       astResult.nodes,
@@ -104,14 +200,16 @@ export const removeThisAndSort: ASTTransform = (astResults, options) => {
       { module: tsModule.ModuleKind.ESNext }
     ).transformed
 
-    const nodeDependents = dependents.slice()
+    const nodeDependents = dependents.slice();
 
-    return {
+    acc.push({
       ...astResult,
       nodes,
       nodeDependents
-    }
-  })
+    });
+
+    return acc;
+  }, []);
 
   const astResultNoDependents = transformResults.filter((el) => el.nodeDependents.length === 0)
   let otherASTResults = transformResults.filter((el) => el.nodeDependents.length !== 0)
@@ -133,6 +231,20 @@ export const removeThisAndSort: ASTTransform = (astResults, options) => {
       break
     }
   } while (result.length < astResults.length)
+
+
+  const emitNode = Object.keys(emittedData).length ? generateEmitNode() : undefined;
+
+  if (emitNode) {
+    result.push({
+      attributes: [],
+      imports: [],
+      kind: ASTResultKind.COMPOSITION,
+      nodes: [emitNode],
+      reference: ReferenceKind.VARIABLE,
+      tag: 'Emit',
+    });
+  }
 
   return result
 }

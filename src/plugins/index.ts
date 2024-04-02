@@ -1,7 +1,7 @@
-import type ts from 'typescript'
+import type ts from 'typescript';
 import { Vc2cOptions } from '../options'
 import { ASTConvertPlugins, ASTResult, ASTConverter, ASTResultKind } from './types'
-import { copySyntheticComments, addTodoComment, convertNodeToASTResult } from '../utils'
+import { convertNodeToASTResult } from '../utils'
 import { log } from '../debug'
 import { convertObjName } from './vue-class-component/object/ComponentName'
 import { convertObjProps } from './vue-class-component/object/Prop'
@@ -9,6 +9,7 @@ import { convertObjData } from './vue-class-component/object/Data'
 import { convertName, mergeName } from './vue-class-component/ComponentName'
 import { convertModel } from './vue-property-decorator/Model'
 import { convertProp, mergeProps } from './vue-property-decorator/Prop'
+import { convertPropSync } from './vue-property-decorator/PropSync'
 import { convertDomRef } from './vue-property-decorator/DomRef'
 import { convertData } from './vue-class-component/Data'
 import { convertGetter, convertSetter, mergeComputed } from './vue-class-component/Computed'
@@ -20,6 +21,7 @@ import { removeThisAndSort } from './removeThisAndSort'
 import { convertRender } from './vue-class-component/Render'
 import { convertInject } from './vue-property-decorator/Inject'
 import { convertProvide } from './vue-property-decorator/Provide'
+import { convertModelSync } from './vue-property-decorator/ModelSync';
 
 export function getDefaultPlugins (tsModule: typeof ts): ASTConvertPlugins {
   return {
@@ -42,6 +44,8 @@ export function getDefaultPlugins (tsModule: typeof ts): ASTConvertPlugins {
     [tsModule.SyntaxKind.PropertyDeclaration]: [
       convertModel,
       convertProp,
+      convertPropSync,
+      convertModelSync,
       convertDomRef,
       convertProvide,
       convertInject,
@@ -131,65 +135,32 @@ export function getASTResults (
   return astResults
 }
 
-export function convertASTResultToSetupFn (astResults: ASTResult<ts.Node>[], options: Vc2cOptions): ts.MethodDeclaration {
-  const tsModule = options.typescript
+export function convertASTResultToSetupFn(astResults: ASTResult<ts.Node>[]): ts.Node[] {
+  const { emit, props, other } = astResults.reduce<Record<string, ts.Node[]>>((acc, result) => {
+    if (result.kind !== ASTResultKind.COMPOSITION) {
+      return acc;
+    }
 
-  const returnStatement = addTodoComment(
-    tsModule,
-    tsModule.createReturn(
-      tsModule.createObjectLiteral([
-        ...astResults
-          .filter((el) => el.kind === ASTResultKind.COMPOSITION)
-          .reduce((array, el) => array.concat(el.attributes), [] as string[])
-          .map((el) => tsModule.createShorthandPropertyAssignment(
-            tsModule.createIdentifier(el),
-            undefined
-          ))
-      ])
-    ),
-    'Please remove unused return variable',
-    false
-  )
+    if (result.tag === 'Emit') {
+      acc.emit = result.nodes;
+    } else if (result.tag === 'Prop') {
+      acc.props = result.nodes;
+    } else {
+      acc.other.push(...result.nodes);
+    }
 
-  return tsModule.createMethod(
-    undefined,
-    undefined,
-    undefined,
-    tsModule.createIdentifier('setup'),
-    undefined,
-    undefined,
-    [
-      tsModule.createParameter(
-        undefined,
-        undefined,
-        undefined,
-        tsModule.createIdentifier(options.setupPropsKey),
-        undefined,
-        undefined,
-        undefined
-      ),
-      tsModule.createParameter(
-        undefined,
-        undefined,
-        undefined,
-        tsModule.createIdentifier(options.setupContextKey),
-        undefined,
-        undefined,
-        undefined
-      )
-    ],
-    undefined,
-    tsModule.createBlock(
-      [
-        ...astResults
-          .filter((el) => el.kind === ASTResultKind.COMPOSITION)
-          .map((el) => el.nodes)
-          .reduce((array, el) => array.concat(el), []) as ts.Statement[],
-        returnStatement
-      ],
-      true
-    )
-  )
+    return acc;
+  }, {
+    emit: [],
+    props: [],
+    other: [],
+  });
+
+  return [
+    ...props,
+    ...emit,
+    ...other,
+  ];
 }
 
 export function convertASTResultToImport (astResults: ASTResult<ts.Node>[], options: Vc2cOptions): ts.ImportDeclaration[] {
@@ -237,6 +208,21 @@ export function convertASTResultToImport (astResults: ASTResult<ts.Node>[], opti
   })
 }
 
+export function convertASTResultToExport(astResults: ASTResult<ts.Node>[], options: Vc2cOptions): ts.ExportAssignment {
+  const tsModule = options.typescript;
+  return tsModule.createExportDefault(
+    tsModule.createObjectLiteral(
+      [
+        ...astResults
+          .filter((el) => el.kind === ASTResultKind.OBJECT)
+          .map((el) => el.nodes)
+          .reduce((array, el) => array.concat(el), []) as ts.PropertyAssignment[],
+      ],
+      true
+    )
+  );
+}
+
 export function runPlugins (
   node: ts.ClassDeclaration,
   options: Vc2cOptions,
@@ -248,50 +234,19 @@ export function runPlugins (
   log('Finished ASTPlugins')
 
   log('Make setup function')
-  const setupFn = convertASTResultToSetupFn(results, options)
-  log('Make default export object')
-  const exportDefaultExpr = (options.compatible)
-    ? tsModule.createCall(
-      tsModule.createIdentifier('defineComponent'),
-      undefined,
-      [tsModule.createObjectLiteral(
-        [
-          ...results
-            .filter((el) => el.kind === ASTResultKind.OBJECT)
-            .map((el) => el.nodes)
-            .reduce((array, el) => array.concat(el), []) as ts.PropertyAssignment[],
-          setupFn
-        ],
-        true
-      )]
-    )
-    : tsModule.createObjectLiteral(
-      [
-        ...results
-          .filter((el) => el.kind === ASTResultKind.OBJECT)
-          .map((el) => el.nodes)
-          .reduce((array, el) => array.concat(el), []) as ts.PropertyAssignment[],
-        setupFn
-      ],
-      true
-    )
-
-  const exportAssignment = copySyntheticComments(
-    tsModule,
-    tsModule.createExportAssignment(
-      undefined,
-      undefined,
-      undefined,
-      exportDefaultExpr
-    ),
-    node
-  )
+  const setupFn = convertASTResultToSetupFn(results);
 
   log('Make ImportDeclaration')
-  const importDeclaration = convertASTResultToImport(results, options)
+  const importDeclaration = convertASTResultToImport(results, options);
+
+  log('Make default export object')
+  const exportDeclaration = options.withDefaultExport ?
+    convertASTResultToExport(results, options) :
+    undefined;
 
   return [
     ...importDeclaration,
-    exportAssignment
+    ...setupFn as ts.Statement[],
+    ...(exportDeclaration ? [exportDeclaration] : []),
   ]
 }

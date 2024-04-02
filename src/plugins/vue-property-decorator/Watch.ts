@@ -12,24 +12,26 @@ export const convertWatch: ASTConverter<ts.MethodDeclaration> = (node, options) 
   if (decorator) {
     const tsModule = options.typescript
     const decoratorArguments = (decorator.expression as ts.CallExpression).arguments
-    if (decoratorArguments.length > 1) {
+    if (decoratorArguments.length) {
       const keyName = (decoratorArguments[0] as ts.StringLiteral).text
       const watchArguments = decoratorArguments[1]
       const method = tsModule.createArrowFunction(
         node.modifiers,
         node.typeParameters,
         node.parameters,
-        node.type,
+        undefined,
         tsModule.createToken(tsModule.SyntaxKind.EqualsGreaterThanToken),
         node.body ?? tsModule.createBlock([], false)
       )
       const watchOptions: ts.PropertyAssignment[] = []
-      if (tsModule.isObjectLiteralExpression(watchArguments)) {
+      if (watchArguments && tsModule.isObjectLiteralExpression(watchArguments)) {
         watchArguments.properties.forEach((el) => {
           if (!tsModule.isPropertyAssignment(el)) return
           watchOptions.push(el)
         })
       }
+
+      const parsedWatchOptions = watchArguments ? [tsModule.createObjectLiteral(watchOptions)] : [];
 
       return {
         tag: 'Watch',
@@ -48,12 +50,16 @@ export const convertWatch: ASTConverter<ts.MethodDeclaration> = (node, options) 
                 tsModule.createIdentifier('watch'),
                 undefined,
                 [
-                  tsModule.createPropertyAccess(
-                    tsModule.createThis(),
-                    createIdentifier(tsModule, keyName)
+                  tsModule.createArrowFunction(
+                    undefined,
+                    undefined,
+                    [],
+                    undefined,
+                    undefined,
+                    tsModule.createPropertyAccess(tsModule.createThis(), tsModule.createIdentifier(keyName))
                   ),
                   method,
-                  tsModule.createObjectLiteral(watchOptions)
+                  ...parsedWatchOptions,
                 ]
               ),
               node
