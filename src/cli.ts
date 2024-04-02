@@ -35,16 +35,6 @@ program
   // eslint-disable-next-line @typescript-eslint/no-misused-promises
   .action(async (filePath: string, cmd) => {
     const cmdOptions = getCmdOptions(cmd)
-    if (!cmdOptions.output && !cmdOptions.view) {
-      const result = await inquirer.prompt({
-        name: 'ok',
-        type: 'confirm',
-        message: 'You aren\'t using -o option to set output file path, It will replace original file content.'
-      })
-      if (!result.ok) {
-        return
-      }
-    }
 
     const { file, result } = convertFile(filePath, cmdOptions.root as string, cmdOptions.config as string)
     if (cmdOptions.view) {

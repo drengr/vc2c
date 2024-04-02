@@ -1,6 +1,6 @@
 import type vueTemplateParser from 'vue-template-compiler'
 import type ts from 'typescript'
-import { ASTResult, ASTResultKind, ReferenceKind } from './plugins/types'
+import { ASTResult, ASTResultKind, ReferenceKind, ASTResultBase } from './plugins/types'
 export function isVueFile (path: string): boolean {
   return path.endsWith('.vue')
 }
@@ -136,4 +136,28 @@ export function createIdentifier (tsModule: typeof ts, text: string): ts.Identif
   // eslint-disable-next-line @typescript-eslint/unbound-method
   temp.getText = () => text
   return temp
+}
+
+function isString(node: string | ts.Expression): node is string {
+  return typeof node === 'string'
+}
+
+export function getStringAttribute(source: ASTResultBase['attributes'], index: number): string {
+  const attribute = source[index];
+
+  return isString(attribute) ? attribute : '';
+}
+
+export function getExpressionAttribute(source: ASTResultBase['attributes'], index: number): ts.Expression | undefined {
+  const attribute = source[index];
+
+  return isString(attribute) ? undefined : attribute;
+}
+
+export function convertTypeToTypeNode(typeNode: unknown, tsModule: typeof ts): ts.TypeNode | undefined {
+  if (tsModule.isTypeReferenceNode(typeNode as ts.Node)) {
+    return typeNode as ts.TypeReferenceNode;
+  } else {
+    return ((typeNode as any).checker as ts.TypeChecker).typeToTypeNode(typeNode as ts.Type);
+  }
 }

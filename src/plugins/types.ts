@@ -1,4 +1,4 @@
-import { Vc2cOptions } from '../options'
+import type { Vc2cOptions } from '../options'
 import type ts from 'typescript'
 
 export enum ASTResultKind {
@@ -29,7 +29,7 @@ export interface ASTResultBase {
   imports: ImportModule[]
   kind: ASTResultKind
   reference: ReferenceKind
-  attributes: string[]
+  attributes: (string | ts.Expression)[]
   tag: string
 }
 
@@ -41,6 +41,7 @@ export interface ASTResultToObject<N = ts.PropertyAssignment> extends ASTResultB
 export interface ASTResultToComposition<N = ts.Statement> extends ASTResultBase {
   kind: ASTResultKind.COMPOSITION
   nodes: N[]
+  types?: ts.Type[];
 }
 
 export type ASTResult<N> = ASTResultToObject<N> | ASTResultToComposition<N>

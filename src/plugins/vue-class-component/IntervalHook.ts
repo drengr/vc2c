@@ -26,7 +26,25 @@ export const convertIntervalHook: ASTConverter<ts.MethodDeclaration> = (node, op
           tsModule.createToken(tsModule.SyntaxKind.EqualsGreaterThanToken),
           node.body ?? tsModule.createBlock([])
         )]
-      )) : node.body?.statements
+      )) : [
+        tsModule.createFunctionDeclaration(
+          undefined,
+          node.modifiers,
+          undefined,
+          intervalHookName,
+          node.typeParameters,
+          node.parameters,
+          node.type,
+          node.body
+        ),
+        tsModule.createExpressionStatement(
+          tsModule.createCall(
+            tsModule.createIdentifier(intervalHookName),
+            undefined,
+            node.parameters as unknown as ts.Expression[]
+          )
+        )
+      ]
 
     if (!outputNode) {
       return false
@@ -34,7 +52,7 @@ export const convertIntervalHook: ASTConverter<ts.MethodDeclaration> = (node, op
 
     const nodes: ts.Statement[] = (needNamedImports.length > 0)
       ? [copySyntheticComments(tsModule, outputNode as ts.Statement, node)]
-      : (outputNode as ts.NodeArray<ts.Statement>).map((el, index) => {
+      : (outputNode as [ts.FunctionDeclaration, ts.ExpressionStatement]).map((el, index) => {
         if (index === 0) {
           return copySyntheticComments(tsModule, el, node)
         }

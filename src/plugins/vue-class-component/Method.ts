@@ -6,14 +6,16 @@ export const convertMethod: ASTConverter<ts.MethodDeclaration> = (node, options)
   const tsModule = options.typescript
   const methodName = node.name.getText()
 
-  const outputMethod = tsModule.createArrowFunction(
+  const outputMethod = tsModule.createFunctionDeclaration(
+    undefined,
     node.modifiers,
+    undefined,
+    methodName,
     node.typeParameters,
     node.parameters,
     node.type,
-    tsModule.createToken(tsModule.SyntaxKind.EqualsGreaterThanToken),
     node.body ?? tsModule.createBlock([])
-  )
+  );
 
   return {
     tag: 'Method',
@@ -22,21 +24,7 @@ export const convertMethod: ASTConverter<ts.MethodDeclaration> = (node, options)
     reference: ReferenceKind.VARIABLE,
     attributes: [methodName],
     nodes: [
-      copySyntheticComments(
-        tsModule,
-        tsModule.createVariableStatement(
-          undefined,
-          tsModule.createVariableDeclarationList([
-            tsModule.createVariableDeclaration(
-              tsModule.createIdentifier(methodName),
-              undefined,
-              outputMethod
-            )
-          ],
-          tsModule.NodeFlags.Const)
-        ),
-        node
-      )
+      copySyntheticComments(tsModule, outputMethod, node),
     ] as ts.Statement[]
   }
 }

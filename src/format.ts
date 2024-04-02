@@ -18,53 +18,7 @@ export function format (content: string, options: Vc2cOptions): string {
   }
 
   const eslintConfigPath = path.resolve(options.root, options.eslintConfigFile)
-  const prettierFormat = require('prettier-eslint') as (config: unknown) => string
-  const prettierEslintOpions = (existsFileSync(eslintConfigPath))
-    ? {
-      text: content,
-      filePath: eslintConfigPath,
-      prettierOptions: {
-        parser: 'typescript'
-      },
-      fallbackPrettierOptions: {
-        parser: 'typescript'
-      }
-    }
-    : {
-      text: content,
-      filePath: '',
-      eslintConfig: {
-        parser: require.resolve('@typescript-eslint/parser'),
-        parserOptions: {
-          sourceType: 'module',
-          ecmaFeatures: {
-            jsx: false
-          }
-        },
-        rules: {
-          semi: ['error', 'never'],
-          'padding-line-between-statements': [
-            'error',
-            { blankLine: 'always', prev: '*', next: 'export' },
-            { blankLine: 'always', prev: 'const', next: '*' },
-            { blankLine: 'always', prev: '*', next: 'const' }
-          ]
-        }
-      },
-      prettierOptions: {
-        parser: 'typescript',
-        Semicolons: false,
-        singleQuote: true,
-        trailingComma: 'none'
-      },
-      fallbackPrettierOptions: {
-        parser: 'typescript',
-        singleQuote: true,
-        Semicolons: false,
-        trailingComma: 'none'
-      }
-    }
 
   log('Format result code.....')
-  return prettierFormat(prettierEslintOpions)
+  return content
 }
